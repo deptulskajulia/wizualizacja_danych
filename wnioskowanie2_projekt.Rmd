@@ -1,0 +1,226 @@
+---
+title: "Słuchotki"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Zbiór danych
+
+Zbiór danych `abalone.csv` zawiera informacje na temat wieku, płci oraz pomiary takie jak waga czy długość słuchotek, zwanych też uchowcami, czyli mięczaków z rodziny ślimaków morskich. Są one znanym i cennym przysmakiem, zwłaszcza w kuchni azjatyckiej. 
+
+Dane pochodzą z raportu _The Population Biology of Abalone (Haliotis species) in Tasmania. I. Blacklip Abalone (H. rubra) from the North Coast and the Islandsof Bass Strait_ przygotowanego przez Warwick J. Nash, Tracy L. Sellers, Simon R. Talbot, Andrew J. Cawthorn i Wes B. Ford z Department of primary industry and fisheries, Tasmania w 1994 roku.
+
+Sam zbiór danych można pobrać ze strony: https://www.kaggle.com/datasets/rodolfomendes/abalone-dataset
+
+Został już on oczyszczony pod względem brakujących wartości. Pozostałe zostały przeskalowane poprzez podzielenie uzyskanych wartości przez 200, by można było używać zestawu przy budowaniu sieci neuronowych.
+
+Wgrywamy plik z wyżej opisanymi danymi.
+```{r}
+abalone <- read.csv("C:/Users/Julia/Desktop/studia/5sem/2wnioskowanie/abalone.csv")
+```
+Mnożymy więc dane numeryczne, które wyrażamy na pomocą jednostek masy i miary razy 200 by uzyskać dane w formie pierwotnej i mogli przypisać do nich odpowienie jednostki.
+
+```{r}
+range = 2:8
+for(i in range) {                                        
+  abalone[i] <- abalone[i]*200 
+}
+```
+
+Poddane badaniu ślimaki można podzielić ze względu na płeć na trzy kategorie: samiec, samica oraz młode. Zmierzono ich długość, średnice oraz wzrost. W zbiorze danych można znaleźć także informacje o ich wadze, przed i po wyłuskaniu, bądż masie ich jelita po upuszczeniu krwi czy muszli po wysuszeniu. Dana jest także informacja o pierścieniach, których wartość + 1.5 reprezentują wiek (w latach) danego ślimaka. Wiedzę o ich liczbie możemy zdobyć poprzez proces szlifowania wierzchołka spiczastej muszli uchowca, dopóki nie powstanie w niej mały otwór, który następnie wytrwawia się kwasem oraz barwi. 
+
+**Zmienne**
+
+zmienna         opis
+--------        ----
+`Sex`           płeć uchowca; M - samiec, F - samica, I - młode
+`Length`        długość muszli uchowca (mm)
+`Diameter`      średnica muszli uchowca (mm)
+`Height`        wysokość uchowca - muszla + wnętrzności (mm)
+`Whole.weight`  waga uchowca (g)
+`Shucked.weight`waga wyłuskanego uchowca (g)
+`Viscera.weight`waga jelita uchowca po upuszczeniu krwi (g)
+`Shell.weight`  waga muszli uchowca (g)
+`Rings`         liczba pierścieni uchowca
+
+
+# Przygotowanie danych
+
+Instalujemy niezbędne biblioteki.
+```{r,warning=FALSE,message=FALSE}
+#install.packages("Hmisc")
+library("Hmisc")
+#install.packages("corrplot")
+library(corrplot)
+library(dplyr)
+library(ggplot2)
+```
+
+
+By przeprowadzić dalszą analize, zmieniamy oznaczenia płci na liczbowe.
+```{r}
+abalone <- abalone %>%
+  mutate(Sex=case_when(
+    .$Sex=="F" ~ 0,
+    .$Sex=="I" ~ 1,
+    .$Sex=="M" ~ 2
+      ))
+```
+
+Następnie sprawdzamy poprawność danych, co do pomiarów słuchotek.
+
+Niemożliwe jest by którykolwiek z pomiarów był równy 0, dlatego sprawdzamy:
+```{r}
+range = 2:9
+for(i in range) {                                        
+  print(paste(which(abalone[,i] == 0))) 
+}
+```
+w kolumnie `Height` w wierszach o numerach 1258 i 3397, możemy znaleźć wartości równe 0. Usuwamy je by nie zaburzały naszej analizy.
+
+```{r}
+abalone <- abalone[-3997]
+abalone <- abalone[-1258]
+```
+
+
+Następnie sprawdzamy poprawność parametrów dotyczących wag poszczególnych części ślimaka oraz masy ślimaka "w całości". Po dodaniu do siebie wartości z kolumn: `Shucked.weight`, `Viscera.weight` oraz `Shell.weight` w poszególnych wierszach, powinniśmy otrzymać liczbę równą wartości przedstawionej w kolumnie `Whole.weight`. 
+Należy wspomnieć, że nie znamy masy wody oraz utraconej krwi uchowca, dlatego suma wyżej wspomnianych parametrów, finalnie może się róznić od faktycznej masy ślimaka.
+
+```{r}
+abalone$Aprox.weight = abalone$Shucked.weight + abalone$Viscera.weight + abalone$Shell.weight
+abalone$Check.weight = abalone$Whole.weight - abalone$Aprox.weight
+```
+
+Ze względu na brak informacji o przybliżonej wartości upuszczonej krwi i wyparowanej wody, nie jesteśmy w stanie określić rzetelności przeprowadzonych pomiarów. 
+Ciekawym zjawiskiem jest fakt, że obliczenia wskazuja na to, że niektóre mięczaki po uprzednim ich 
+"oporzędzeniu" zyskały na wadze. 
+
+```{r}
+abalone[40:50,"Check.weight"]
+```
+Jak wspomniano we wstępie, na podstawie liczby pierścieni możemy przewidzieć wiek danego uchowca za pomocą wzoru: $$ liczbapierścieni + 1.5 = wiek$$
+
+Tworzymy więc nową zmienną do tabeli: 
+```{r}
+abalone$Age = abalone$Rings + 1.5
+```
+
+# Podstawowe statystyki i analizy
+```{r}
+lapply(abalone,summary)
+```
+Sprawdzamy korelacje pomiędzy zmiennymi:
+```{r}
+abalone.cor = cor(abalone, method = c("pearson"))
+corrplot(abalone.cor, method = 'number',number.cex = .7, tl.srt=40,tl.col="black",
+         col = COL1('YlOrBr'))
+```
+Możemy zauważyć bardzo wysokie korelacje pomiędzy zmiennymi, więc dobranie dobrego modelu nie powinno być kłopotem. Zatem przejdźmy do hipotez badawczych. 
+
+# Weryfikacja hipotez
+
+**Hipoteza badawcza: Wiek można ocenić na podstawie samych rozmiarów i wagi słuchatek. Podejrzewamy, że wraz z wiekiem rośnie ich rozmiar, a po osiągnieciu ostatecznego rozmiaru, ich waga może spadać**
+
+
+```{r}
+shapiro.test(abalone$Whole.weight)
+```
+Test Shapiro-Wilka mówi, że rozkład wagi w naszych danych nie jest normalny.
+
+```{r}
+abalone$Sex_str = factor(abalone$Sex, labels = c("Samiec","Młode","Samica"))
+ggplot(abalone, aes(x = Age , y=Whole.weight,colour= Sex_str )) + geom_point()
+```
+Z wykresu nie widać zbyt dużej zależności pomiędzy zmiennymi `Age` oraz `Whole.weight`.
+
+
+Przeprowadźmy test i zbudujmy model:
+```{r}
+model_age_1=lm(Age~Length + Height + Whole.weight, data=abalone)
+summary(model_age_1)
+```
+
+Podsumowanie modelu sugeruje, że `Whole.weight` nie jest istotne statystycznie, jest na granicy przedziału o nieistotności. 
+Sprawdźmy model i zwrócmy uwagę na objaśnianą wariancję. Jeżeli nie zmieni się ona znacznie, to odrzucimy `Whole.weight` jako zmienną objaśniającą.
+```{r}
+model_age_2=lm(Age ~ Length + Height , data=abalone)
+summary(model_age_2)
+plot(model_age_2)
+```
+Wynika, że zmienna `Whole.weight` jest niepotrzebna -  objaśniana wariancja nam to pokazuje.
+Zobaczmy, co się stanie, kiedy usuniemy obserwacje z największą dźwignią.
+
+```{r}
+abalone= abalone[-2052,]
+abalone= abalone[-1418,]
+model_age_3=lm(Age~Length + Height , data=abalone)
+summary(model_age_3)
+```
+Zauważamy znaczy wzrost p-wartości dla `Length` i delikatny dla objaśnianej wariancji, więc odkryliśmy jedną obserwację, która utrudniała dobranie nam właściwych współczynników.
+Możemy, więc podejrzewać, że nie potrzebujemy `Length` w modelu.
+
+```{r}
+model_age_4=lm(Age ~ Height , data=abalone)
+summary(model_age_4)
+```
+Okazało się, że wiek uchowca równie dobrze można określić na podstawie samego wzrostu bez potrzeby użycia długości czy wagi ślimaka. Można podejrzewać, że jest to spowodane wysoką korelacją wysokości z długością oraz wagą, a zatem informacja o długości nie była ważna, ponieważ była już zawarta pośrednio we wzroście.
+
+```{r}
+ggplot(abalone, aes(x =  Height, y = Age,colour=Sex_str)) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red")
+```
+**Hipoteza badawcza: Waga u samic nie jest objaśniana na podstawie wieku. Przypuszczenie pochodzi z faktu iż ludzie, a konkretnie kobiety średnio przez długi czas utrzymują swoją wage do czasu zajścia w ciąże, a następnie po porodzie są cięższe i tak już pozostaje. Jako że słuchotki nie są ssakami i składają jaja, sytuacja z wagą może wyglądać inaczej. **
+
+```{r}
+ggplot(abalone, aes(x = Whole.weight, fill = Sex_str)) + geom_histogram() 
+```
+Rozkład wagi u samic jest prawoskośny.
+
+Usuwane dane młodych z tabeli, aby nie zakłócać naszego osądu o hipotezie.
+```{r}
+abalone$Sex = as.integer(abalone$Sex)
+abalone_plec <-subset(abalone, Sex != 1 )
+
+model.plec = lm(Whole.weight ~ Age * Sex ,data = abalone_plec)
+summary(model.plec)
+
+```
+Wszystkie współczynniki istotne statystycznie, ale czy to oznacza, że hipoteza była błędna? Otóż nie, gdyż jeśli spojrzymy na współczynniki wyestymowane dla zmiennych objaśniających, zauważymy, że są one bardzo małe bliskie zeru, a krzywa jest tylko delikatnie inna od stałej. Można myśleć, że wiek nie objaśnia wagi kobiet, a wpływ mają parametry środowiska, w którym żyją ślimaki. Spójrzmy na wykres, który pokazuje brak korelacji wagi i wieku.
+
+```{r}
+ggplot(abalone, aes(x = Age*Sex, y = Whole.weight, colour = Sex_str)) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red")
+```
+**Hipoteza badawcza: W przyrodzie powszechne jest zjawisko dymorfizmu płciowego, czyli występowania różnych cech u danych osobników ze względu na płeć. Przeważnie objawia się on różnicami w pomiarach - samiec przeważnie jest większy. Możemy więc przypuszczać, że u słuchotek możemy się spotkać również z taka sytuacja i na podstawie różnic w tylko budowie muszli jesteśmy w stanie określić płeć ślimaka.      **
+
+Jako zmienne opisujące wybieramy, te które mają związek z budową muszli słuchotek. Pozbywamy się także młodych z danych jako, że nie jest znana ich płeć.
+```{r}
+model_sex= lm(Sex ~ Diameter + Length + Shell.weight ,data = abalone_plec)
+summary(model_sex)
+plot(model_sex)
+```
+Możemy zauważyć, że nasze zmienne nie są istotne statystycznie pod względem przewidywania płci poza zmienna `Diameter`.
+Powodem do niepokoju mogą być również niskie wartości Multiple R-squared i Adjusted R-squared.
+Na wykresach diagnostycznych znajdują się dwie "grupy" punktów, ze względu, że naszą zmienną objaśnianą jest tzw. "dummy variable".
+Spróbujmy usunąć punkty o dużej dźwignii.  
+```{r}
+abalone_plec= abalone_plec[-2162,]
+abalone_plec= abalone_plec[-2109,]
+abalone_plec= abalone_plec[-164,]
+model_sex2= lm(Sex ~ Diameter + Length + Shell.weight ,data = abalone_plec)
+summary(model_sex2)
+```
+Nie zmieniło to praktycznie sytuacji w naszym modelu. Spróbujmy więc:
+```{r}
+model_sex3= lm(Sex ~ Diameter,data = abalone_plec)
+summary(model_sex3)
+```
+Mimo, że zmienna `Diamater` jest istotne statystycznie, nie mozemy przypuszczać, że objaśnia ona dobrze płeć. Tak więc na podstawie tylko i wyłącznie parametrów opisujących muszle słuchotek, nie jesteśmy w stanie przewidzieć płci.
+
+
+
+
